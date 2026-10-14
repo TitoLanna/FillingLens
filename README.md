@@ -26,25 +26,11 @@ There are no benchmark results in this repo yet. The experiment log fills in onc
 
 ## How it works
 
-```
- Browser (React, :5173)
-        |  /v1/*  (SSE for answers)
-        v
- API gateway (:8080)        allowlist · admin token · CORS · rate limit · validation · load shedding
-        |
-        v
- Backend (:8000, internal)
-   POST /v1/query  ->  retrieval service  ->  cite or refuse  ->  LLM (streamed)  ->  trace
-                        |  dense (cosine)     numbered passages    Anthropic API
-                        |  BM25                                    (raw HTTP)
-                        |  RRF fusion
-                        v
-                     SQLite: documents · chunks (+ vectors) · golden_questions · eval_runs · eval_results
-                        ^
-   Ingestion worker -----+   EDGAR -> parse sections/tables -> chunk -> embed (Voyage, raw HTTP)
+<p align="center">
+  <img src="docs/architecture.svg" alt="FilingLens architecture: the browser calls an API gateway, which forwards to an internal backend. The backend query path runs retrieval, cite-or-refuse, a streamed LLM call and a trace, backed by SQLite. An ingestion worker loads EDGAR filings into SQLite, and an eval harness runs golden questions through the same query path." width="680">
+</p>
 
- Eval harness: golden questions -> the same query path -> metrics + judge verdicts -> diff vs baseline
-```
+The ingestion worker writes filings, chunks and vectors into SQLite. The eval harness (dashed arrow) runs golden questions through the same query path that users hit, so evals measure exactly what users get.
 
 **Query path.** The gateway validates the request and forwards it. The retrieval service runs the configured stages (`baseline` is dense only; `hybrid` is BM25 plus dense merged with reciprocal rank fusion), applies company and year filters, and returns ranked chunks with per-stage scores. The backend emits the passages as citations first, then streams the answer, then a trace with stage timings, tokens and cost. If no retriever clears its confidence threshold, or the model replies `NOT_FOUND`, it sends a refusal instead of an answer.
 
@@ -117,6 +103,7 @@ The browser, and the public, only reach the gateway. It exposes four routes (`PO
 | `backend/scripts/` | Command-line tools: `ingest`, `seed`, `golden`, `run_evals`, `baseline`, `calibrate_judge`, `ci_eval` |
 | `backend/tests/` | Unit and integration tests (standard `unittest`) |
 | `backend/data/` | `corpus.json` (which filings to ingest); your databases and golden/baseline files live here |
+| `docs/` | `architecture.svg`, the diagram in this README |
 | `.github/workflows/` | CI and eval workflows |
 | `API_CONTRACT.md` | Endpoint and SSE event shapes the UI depends on |
 
