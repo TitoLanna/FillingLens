@@ -95,6 +95,10 @@ The browser, and the public, only reach the gateway. It exposes four routes (`PO
 
 ## Project layout
 
+<p align="center">
+  <img src="docs/filinglens_project_layout_tree.svg" alt="Repository tree: src (React and TypeScript UI), backend (main.py and filinglens, gateway, scripts, tests, data), docs, .github/workflows, and API_CONTRACT.md." width="680">
+</p>
+
 | Path | What it is |
 | --- | --- |
 | `src/` | React + TypeScript UI: `api/` (types, fetch + SSE client, mock), `hooks/useQueryStream.ts`, `components/` (ask view, answer text, source cards, trace bar, experiments view) |
@@ -103,7 +107,7 @@ The browser, and the public, only reach the gateway. It exposes four routes (`PO
 | `backend/scripts/` | Command-line tools: `ingest`, `seed`, `golden`, `run_evals`, `baseline`, `calibrate_judge`, `ci_eval` |
 | `backend/tests/` | Unit and integration tests (standard `unittest`) |
 | `backend/data/` | `corpus.json` (which filings to ingest); your databases and golden/baseline files live here |
-| `docs/` | `architecture.svg`, the diagram in this README |
+| `docs/` | The two diagrams in this README: `architecture.svg` and `filinglens_project_layout_tree.svg` |
 | `.github/workflows/` | CI and eval workflows |
 | `API_CONTRACT.md` | Endpoint and SSE event shapes the UI depends on |
 
