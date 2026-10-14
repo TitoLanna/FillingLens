@@ -5,15 +5,12 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-from .. import embeddings, http
+from .. import embeddings
 from ..db import write_lock
-from ..text import chunk_words, tokenize
+from ..text import tokenize
 from . import edgar
-from .parse import parse_sections
-
-
-def fetch(url: str, user_agent: str) -> str:
-    return http.get_text(url, {"User-Agent": user_agent})
+from .chunking import chunk_blocks
+from .parse import parse_blocks
 
 
 def ingest_document(conn: sqlite3.Connection, meta: dict, html: str) -> str:
@@ -32,8 +29,8 @@ def ingest_document(conn: sqlite3.Connection, meta: dict, html: str) -> str:
                 (row["id"], model)).fetchone():
             return "skipped"  # unchanged text and vectors already from the current model
 
-    pieces = [(section, piece) for section, text in parse_sections(html)
-              for piece in chunk_words(text)]
+    pieces = [(section, piece) for section, blocks in parse_blocks(html)
+              for piece in chunk_blocks(blocks)]
     vectors = embeddings.embed_documents([p for _, p in pieces])
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -64,15 +61,16 @@ def ingest_document(conn: sqlite3.Connection, meta: dict, html: str) -> str:
     return status
 
 
-def ingest_url(conn: sqlite3.Connection, meta: dict, user_agent: str) -> str:
-    return ingest_document(conn, meta, fetch(meta["url"], user_agent))
+def ingest_url(conn: sqlite3.Connection, meta: dict, user_agent: str, raw_dir=None) -> str:
+    html, _ = edgar.fetch_filing(meta["url"], user_agent, raw_dir)
+    return ingest_document(conn, meta, html)
 
 
 class Jobs:
     """In-memory job table; each job runs in its own thread."""
 
-    def __init__(self, conn, user_agent: str, on_done):
-        self.conn, self.user_agent, self.on_done = conn, user_agent, on_done
+    def __init__(self, conn, user_agent: str, on_done, raw_dir=None):
+        self.conn, self.user_agent, self.on_done, self.raw_dir = conn, user_agent, on_done, raw_dir
         self.jobs: dict[str, dict] = {}
 
     def submit(self, documents: list[dict] | None = None, tickers: list[str] | None = None,
@@ -102,7 +100,7 @@ class Jobs:
         job["total"] = len(documents)
         for doc in documents:
             try:
-                job["counts"][ingest_url(self.conn, doc, self.user_agent)] += 1
+                job["counts"][ingest_url(self.conn, doc, self.user_agent, self.raw_dir)] += 1
             except Exception as exc:
                 job["counts"]["failed"] += 1
                 job["errors"].append({"ticker": doc.get("ticker"), "error": str(exc)})

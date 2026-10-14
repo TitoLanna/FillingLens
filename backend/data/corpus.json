@@ -1,4 +1,44 @@
 {
-  "tickers": ["AAPL", "MSFT"],
-  "years": [2023, 2024]
+  "tickers": [
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "META",
+    "NVDA",
+    "TSLA",
+    "NFLX",
+    "AMD",
+    "INTC",
+    "ORCL",
+    "JPM",
+    "BAC",
+    "GS",
+    "XOM",
+    "CVX",
+    "JNJ",
+    "PFE",
+    "UNH",
+    "LLY",
+    "KO",
+    "PEP",
+    "PG",
+    "COST",
+    "DIS",
+    "BA",
+    "CAT",
+    "GE",
+    "MCD",
+    "V"
+  ],
+  "years": [
+    2022,
+    2023,
+    2024
+  ],
+  "ciks": {
+    "XOM": [
+      34088
+    ]
+  }
 }

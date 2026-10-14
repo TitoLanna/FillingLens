@@ -28,7 +28,7 @@ def _run_row(r: sqlite3.Row) -> dict:
 
 
 def make_handler(conn: sqlite3.Connection, retriever: Retriever, settings: Settings):
-    jobs = Jobs(conn, settings.sec_user_agent, on_done=retriever.reload)
+    jobs = Jobs(conn, settings.sec_user_agent, on_done=retriever.reload, raw_dir=settings.raw_dir)
     default_config = PRESETS[settings.pipeline]
 
     class Handler(BaseHTTPRequestHandler):

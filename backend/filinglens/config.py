@@ -27,6 +27,7 @@ class Settings:
     refusal_min_bm25: float
     refusal_min_dense: float
     sec_user_agent: str
+    raw_dir: Path
     embedding_provider: str   # hash | voyage
     voyage_api_key: str
     voyage_model: str
@@ -50,6 +51,7 @@ def load() -> Settings:
         refusal_min_bm25=float(env("REFUSAL_MIN_BM25", "0.3")),
         refusal_min_dense=float(env("REFUSAL_MIN_DENSE", "0.2")),
         sec_user_agent=env("SEC_USER_AGENT", "FilingLens research contact@example.com"),
+        raw_dir=ROOT / env("RAW_DIR", "data/raw"),
         embedding_provider=env("EMBEDDING_PROVIDER", "hash"),
         voyage_api_key=env("VOYAGE_API_KEY", ""),
         voyage_model=env("VOYAGE_MODEL", "voyage-3.5"),
