@@ -1,0 +1,140 @@
+name: Eval
+
+# Pull requests: fast stratified subset, metrics diff posted as a PR comment, fails on regression.
+# Nightly and manual runs: the full golden set (or a subset you choose).
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/eval.yml"
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        description: Pipeline preset to evaluate
+        type: choice
+        options: [hybrid, baseline]
+        default: hybrid
+      subset:
+        description: Number of questions (0 = full golden set)
+        default: "0"
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # Secrets are not exposed to PRs from forks; the job then skips itself instead of failing.
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+  SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+  EMBEDDING_PROVIDER: voyage
+  LLM_PRICE_IN: ${{ vars.LLM_PRICE_IN }}
+  LLM_PRICE_OUT: ${{ vars.LLM_PRICE_OUT }}
+  DB_PATH: data/ci.db
+
+jobs:
+  eval:
+    name: Eval vs baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check prerequisites
+        id: prereq
+        run: |
+          missing=""
+          [ -n "$ANTHROPIC_API_KEY" ] || missing="$missing secret:ANTHROPIC_API_KEY"
+          [ -n "$VOYAGE_API_KEY" ] || missing="$missing secret:VOYAGE_API_KEY"
+          [ -n "$SEC_USER_AGENT" ] || missing="$missing var:SEC_USER_AGENT"
+          for f in data/corpus.json data/golden.jsonl data/baseline.json; do
+            [ -f "$f" ] || missing="$missing file:$f"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice title=Eval skipped::Missing:$missing (see backend/README.md, 'CI setup')"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The ingested corpus (chunks + vectors) is cached, keyed on everything that changes it.
+      - name: Restore corpus cache
+        if: steps.prereq.outputs.ready == 'true'
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: backend/data/ci.db
+          key: corpus-${{ hashFiles('backend/data/corpus.json', 'backend/filinglens/ingestion/**', 'backend/filinglens/embeddings.py', 'backend/filinglens/text.py') }}-${{ vars.VOYAGE_MODEL || 'voyage-3.5' }}
+
+      - name: Ingest corpus from EDGAR
+        if: steps.prereq.outputs.ready == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: python scripts/ingest.py --manifest data/corpus.json
+
+      - name: Save corpus cache
+        if: steps.prereq.outputs.ready == 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: backend/data/ci.db
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: Load golden set and baseline
+        if: steps.prereq.outputs.ready == 'true'
+        run: |
+          python scripts/golden.py import data/golden.jsonl
+          python scripts/baseline.py import data/baseline.json
+
+      - name: Run eval and diff against baseline
+        if: steps.prereq.outputs.ready == 'true'
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pipeline=hybrid; subset=30
+          else
+            pipeline="${{ inputs.pipeline || 'hybrid' }}"; subset="${{ inputs.subset || '0' }}"
+          fi
+          set +e   # keep going on a regression so the diff still gets posted
+          python scripts/ci_eval.py --pipeline "$pipeline" --subset "$subset" --generate --judge \
+            --max-drop 0.03 --label "ci ${GITHUB_SHA::7}" --output diff.md
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Publish diff
+        if: always() && steps.prereq.outputs.ready == 'true' && hashFiles('backend/diff.md') != ''
+        run: cat diff.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the pull request
+        if: always() && github.event_name == 'pull_request' && steps.prereq.outputs.ready == 'true' && hashFiles('backend/diff.md') != ''
+        continue-on-error: true   # a read-only token must not fail the eval itself
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --edit-last --create-if-none --body-file diff.md
+
+      - name: Upload diff
+        if: always() && hashFiles('backend/diff.md') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-diff
+          path: backend/diff.md
+
+      - name: Fail on regression or crash
+        if: steps.prereq.outputs.ready == 'true' && steps.gate.outputs.code != '0'
+        run: |
+          if [ "${{ steps.gate.outputs.code }}" = "2" ]; then
+            echo "::error title=Eval regression::A quality metric dropped more than 0.03 vs the baseline. See the diff above."
+          else
+            echo "::error title=Eval crashed::scripts/ci_eval.py exited with code ${{ steps.gate.outputs.code }}."
+          fi
+          exit 1
